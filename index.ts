@@ -36,9 +36,16 @@ type EitherKey<Key1 extends PropertyKey, Key2 extends PropertyKey, Value> =
   | ({ [K in Key1]?: Value } & { [K in Key2]?: never })
   | ({ [K in Key1]?: never } & { [K in Key2]?: Value });
 
+export type CrossOriginIsolationOptions = {
+  openerPolicy?: CrossOriginOpenerPolicyOptions["policy"];
+  embedderPolicy?: CrossOriginEmbedderPolicyOptions["policy"];
+  resourcePolicy?: CrossOriginResourcePolicyOptions["policy"];
+};
+
 export type HelmetOptions = {
   contentSecurityPolicy?: ContentSecurityPolicyOptions | boolean;
   crossOriginEmbedderPolicy?: CrossOriginEmbedderPolicyOptions | boolean;
+  crossOriginIsolation?: CrossOriginIsolationOptions | boolean;
   crossOriginOpenerPolicy?: CrossOriginOpenerPolicyOptions | boolean;
   crossOriginResourcePolicy?: CrossOriginResourcePolicyOptions | boolean;
   originAgentCluster?: boolean;
@@ -121,40 +128,79 @@ function getMiddlewareFunctionsFromOptions(
       break;
   }
 
-  switch (options.crossOriginEmbedderPolicy) {
-    case undefined:
-    case false:
-      break;
-    case true:
-      result.push(crossOriginEmbedderPolicy());
-      break;
-    default:
-      result.push(crossOriginEmbedderPolicy(options.crossOriginEmbedderPolicy));
-      break;
-  }
+  const crossOriginIsolationOption = options.crossOriginIsolation;
+  if (crossOriginIsolationOption) {
+    if ("crossOriginOpenerPolicy" in options) {
+      throw new Error(
+        "Cross-Origin-Opener-Policy option was specified along with `crossOriginIsolation`. Remove the `crossOriginOpenerPolicy` option to fix this error.",
+      );
+    }
+    if ("crossOriginEmbedderPolicy" in options) {
+      throw new Error(
+        "Cross-Origin-Embedder-Policy option was specified along with `crossOriginIsolation`. Remove the `crossOriginEmbedderPolicy` option to fix this error.",
+      );
+    }
+    if ("crossOriginResourcePolicy" in options) {
+      throw new Error(
+        "Cross-Origin-Resource-Policy option was specified along with `crossOriginIsolation`. Remove the `crossOriginResourcePolicy` option to fix this error.",
+      );
+    }
 
-  switch (options.crossOriginOpenerPolicy) {
-    case undefined:
-    case true:
-      result.push(crossOriginOpenerPolicy());
-      break;
-    case false:
-      break;
-    default:
-      result.push(crossOriginOpenerPolicy(options.crossOriginOpenerPolicy));
-      break;
-  }
+    const crossOriginIsolationOptions =
+      crossOriginIsolationOption === true ? {} : crossOriginIsolationOption;
+    // These middlewares are always emitted in the same order so that the
+    // resulting headers are deterministic and auditable.
+    result.push(
+      crossOriginOpenerPolicy({
+        policy: crossOriginIsolationOptions.openerPolicy,
+      }),
+      crossOriginEmbedderPolicy({
+        policy: crossOriginIsolationOptions.embedderPolicy,
+      }),
+      crossOriginResourcePolicy({
+        policy: crossOriginIsolationOptions.resourcePolicy,
+      }),
+    );
+  } else {
+    switch (options.crossOriginEmbedderPolicy) {
+      case undefined:
+      case false:
+        break;
+      case true:
+        result.push(crossOriginEmbedderPolicy());
+        break;
+      default:
+        result.push(
+          crossOriginEmbedderPolicy(options.crossOriginEmbedderPolicy),
+        );
+        break;
+    }
 
-  switch (options.crossOriginResourcePolicy) {
-    case undefined:
-    case true:
-      result.push(crossOriginResourcePolicy());
-      break;
-    case false:
-      break;
-    default:
-      result.push(crossOriginResourcePolicy(options.crossOriginResourcePolicy));
-      break;
+    switch (options.crossOriginOpenerPolicy) {
+      case undefined:
+      case true:
+        result.push(crossOriginOpenerPolicy());
+        break;
+      case false:
+        break;
+      default:
+        result.push(crossOriginOpenerPolicy(options.crossOriginOpenerPolicy));
+        break;
+    }
+
+    switch (options.crossOriginResourcePolicy) {
+      case undefined:
+      case true:
+        result.push(crossOriginResourcePolicy());
+        break;
+      case false:
+        break;
+      default:
+        result.push(
+          crossOriginResourcePolicy(options.crossOriginResourcePolicy),
+        );
+        break;
+    }
   }
 
   switch (options.originAgentCluster) {

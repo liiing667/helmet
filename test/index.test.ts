@@ -166,6 +166,118 @@ describe("helmet", () => {
     });
   });
 
+  it("enables cross-origin isolation with compatible defaults in one option", async () => {
+    await check(topLevel({ crossOriginIsolation: true }), {
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-embedder-policy": "require-corp",
+      "cross-origin-resource-policy": "same-origin",
+    });
+
+    await check(topLevel({ crossOriginIsolation: {} }), {
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-embedder-policy": "require-corp",
+      "cross-origin-resource-policy": "same-origin",
+    });
+  });
+
+  it("allows cross-origin isolation policies to be customized", async () => {
+    await check(
+      topLevel({
+        crossOriginIsolation: {
+          openerPolicy: "same-origin-allow-popups",
+          embedderPolicy: "credentialless",
+          resourcePolicy: "cross-origin",
+        },
+      }),
+      {
+        "cross-origin-opener-policy": "same-origin-allow-popups",
+        "cross-origin-embedder-policy": "credentialless",
+        "cross-origin-resource-policy": "cross-origin",
+      },
+    );
+  });
+
+  it("emits cross-origin isolation headers in a deterministic order", async () => {
+    const headerOrder: string[] = [];
+    const app = createServer((req, res) => {
+      const setHeader = res.setHeader.bind(res);
+      res.setHeader = (name, value) => {
+        headerOrder.push(String(name).toLowerCase());
+        return setHeader(name, value);
+      };
+      topLevel({ crossOriginIsolation: true })(req, res, () => {
+        res.end("Hello world!");
+      });
+    });
+
+    await supertest(app).get("/").expect(200, "Hello world!");
+
+    assert.deepEqual(
+      headerOrder.filter((name) => name.startsWith("cross-origin-")),
+      [
+        "cross-origin-opener-policy",
+        "cross-origin-embedder-policy",
+        "cross-origin-resource-policy",
+      ],
+    );
+  });
+
+  it("keeps the standalone cross-origin policy options working when cross-origin isolation is disabled", async () => {
+    await check(
+      topLevel({
+        crossOriginIsolation: false,
+        crossOriginEmbedderPolicy: { policy: "credentialless" },
+        crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+        crossOriginResourcePolicy: { policy: "cross-origin" },
+      }),
+      {
+        "cross-origin-opener-policy": "same-origin-allow-popups",
+        "cross-origin-embedder-policy": "credentialless",
+        "cross-origin-resource-policy": "cross-origin",
+      },
+    );
+  });
+
+  it("errors at startup when cross-origin isolation conflicts with standalone policy options", () => {
+    assert.throws(
+      () =>
+        topLevel({
+          crossOriginIsolation: true,
+          crossOriginOpenerPolicy: { policy: "unsafe-none" },
+        }),
+      /Cross-Origin-Opener-Policy.*crossOriginIsolation/,
+    );
+
+    assert.throws(
+      () =>
+        topLevel({
+          crossOriginIsolation: true,
+          crossOriginEmbedderPolicy: { policy: "unsafe-none" },
+        }),
+      /Cross-Origin-Embedder-Policy.*crossOriginIsolation/,
+    );
+
+    assert.throws(
+      () =>
+        topLevel({
+          crossOriginIsolation: true,
+          crossOriginResourcePolicy: false,
+        }),
+      /Cross-Origin-Resource-Policy.*crossOriginIsolation/,
+    );
+  });
+
+  it("errors at startup when cross-origin isolation policies are invalid", () => {
+    assert.throws(() =>
+      topLevel({
+        crossOriginIsolation: {
+          // @ts-expect-error
+          embedderPolicy: "invalid-policy",
+        },
+      }),
+    );
+  });
+
   it("allows Origin-Agent-Cluster middleware to be enabled", async () => {
     await check(topLevel({ originAgentCluster: true }), {
       "origin-agent-cluster": "?1",
